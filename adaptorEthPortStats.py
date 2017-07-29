@@ -1,3 +1,12 @@
+"""
+Author: kriswans@cisco.com
+
+Program Description:
+1. Authenticates and grabs cookie
+2. Pulls list of servers in UCSM domain
+3. Polls all adaptorEthPortStats over specified interval and writes to a csv file
+"""
+
 import requests
 from xml.etree import ElementTree
 import pprint
