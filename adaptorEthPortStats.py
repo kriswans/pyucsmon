@@ -14,94 +14,123 @@ import sys
 import getpass
 import time
 
-def adaptorEthPortStats(ucsm_ip,runs,interv,user,passw):
+class Get_net_stats:
 
-    if ucsm_ip == None:
+    def __init__(self, connectvars, outCookie, compute_list):
+        self.connectvars = connectvars
+        self.outCookie = outCookie
+        self.compute_list = compute_list
+
+    def findUCSMCredfile():
+        '''find credential file for UCSM login'''
+
+
+    def acquireConnectVars():
+        '''aquire user login, connection, and polling variables for a ucs system. Return a dictionary containing the variables'''
         ucsm_ip=input("Enter the IP or Name of the UCSM that you will connect to: ")
-    if runs == None:
         runs=int(input("\nEnter the number of polling iterations: "))
-    if interv == None:
         interv=int(input("\nEnter the polling interval: "))
-    if user == None:
         user=input("\nEnter the username to connect to UCSM: ")
-    if passw == None:
         passw=getpass.getpass(prompt='\nEnter UCSM Password: ')
+        url = "http://{ucsm_ip}/nuova".format(ucsm_ip=ucsm_ip)
+        connectvars={'ucsm_ip':ucsm_ip,'runs':runs,'interv':interv,'user':user,'passw':passw,'url':url}
+
+        return connectvars
+
+    def acquireCookie(connectvars):
+        '''acquire and return login cookie to be used in place of user credentials'''
+
+        url =connectvars['url']
+
+        payload = "<aaaLogin inName=\"{user}\" inPassword=\"{passw}\" />".format(user=connectvars['user'],passw=connectvars['passw'])
+        headers = {
+            'content-type': "text/xml",
+            'cache-control': "no-cache",
+            }
+
+        response = requests.request("POST", url, data=payload, headers=headers)
+
+        root = ElementTree.fromstring(response.content)
 
 
-    url = "http://{ucsm_ip}/nuova".format(ucsm_ip=ucsm_ip)
+        for child in root.iter('aaaLogin'):
+            aaaLogin=child.attrib
 
-    payload = "<aaaLogin inName=\"{user}\" inPassword=\"{passw}\" />".format(user=user,passw=passw)
-    headers = {
-        'content-type': "text/xml",
-        'cache-control': "no-cache",
-        'postman-token': "a1a32551-e587-c4e0-cf3b-24eb78f6b713"
-        }
+        outCookie=aaaLogin['outCookie']
 
-    response = requests.request("POST", url, data=payload, headers=headers)
+        return outCookie
 
-    root = ElementTree.fromstring(response.content)
+    def findCompute(outCookie):
+        '''find active servers in UCS domain, i.e. servers that have a Service Prifile associated.
+        Return a list of active servers'''
+        payload = "<configFindDnsByClassId \r\n    classId=\"computeItem\" \r\n    cookie=\"{outCookie}\" />".format(outCookie=outCookie)
+        headers = {
+            'content-type': "text/xml",
+            'cache-control': "no-cache",
+            }
 
+        url =connectvars['url']
 
-    for child in root.iter('aaaLogin'):
-        aaaLogin=child.attrib
+        response2 = requests.request("POST", url, data=payload, headers=headers)
 
-    outCookie=aaaLogin['outCookie']
+        root2 = ElementTree.fromstring(response2.content)
 
-    payload = "<configFindDnsByClassId \r\n    classId=\"computeItem\" \r\n    cookie=\"{outCookie}\" />".format(outCookie=outCookie)
-    headers = {
-        'content-type': "text/xml",
-        'cache-control': "no-cache",
-        'postman-token': "79a0aa4a-8af7-fff2-5225-c5f85320cf5b"
-        }
+        compute_list=[]
+        for child in root2.iter('dn'):
+             compute_list.append(child.attrib['value'])
 
-    response2 = requests.request("POST", url, data=payload, headers=headers)
+        return compute_list
 
-    root2 = ElementTree.fromstring(response2.content)
+    def adaptorEthPortStats(outCookie, compute_list, connectvars):
+        ''' polls the ethernet stats on the blades that have a service profile associated'''
+        statsfile=open('adaptorEthPortStats.csv','w')
+        i=0
+        runs=connectvars['runs']
+        interv=connectvars['interv']
+        while i < runs :
+            print("\nRunning {i} of {runs} runs.".format(i=str(i+1),runs=str(runs)))
+            for svr in compute_list:
 
-    compute_list=[]
-    for child in root2.iter('dn'):
-         compute_list.append(child.attrib['value'])
+                payload = "<configScope \r\n    cookie=\"{outCookie}\" \r\n    inHierarchical=\"true\" \r\n    dn=\"{svr}\"\r\n    inClass=\"adaptorEthPortStats\" />".format(outCookie=outCookie,svr=svr)
+                headers = {
+                    'content-type': "text/xml",
+                    'cache-control': "no-cache",
+                    }
 
-    statsfile=open('adaptorEthPortStats.csv','w')
-    i=0
-    while i < runs :
-        print("\nRunning {i} of {runs} runs.".format(i=str(i+1),runs=str(runs)))
-        for svr in compute_list:
+                url =connectvars['url']
 
-            payload = "<configScope \r\n    cookie=\"{outCookie}\" \r\n    inHierarchical=\"true\" \r\n    dn=\"{svr}\"\r\n    inClass=\"adaptorEthPortStats\" />".format(outCookie=outCookie,svr=svr)
-            headers = {
-                'content-type': "text/xml",
-                'cache-control': "no-cache",
-                'postman-token': "c280bf42-4d04-42b5-f2ab-ba2ca95683ac"
-                }
+                response3 = requests.request("POST", url, data=payload, headers=headers)
 
-            response3 = requests.request("POST", url, data=payload, headers=headers)
+                root3 = ElementTree.fromstring(response3.content)
 
-            root3 = ElementTree.fromstring(response3.content)
+                for child in root3.iter('adaptorEthPortStats'):
+                    stat=(child.attrib)
+                    server=(child.attrib['dn'])
+                    statsfile.write(str(server))
+                    statsfile.write(" :\n\n")
+                    del stat['dn']
+                    statsfile.close()
 
-            for child in root3.iter('adaptorEthPortStats'):
-                stat=(child.attrib)
-                server=(child.attrib['dn'])
-                statsfile.write(str(server))
-                statsfile.write(" :\n\n")
-                del stat['dn']
-                statsfile.close()
-
-                f=open('adaptorEthPortStats.csv','a')
-                orig_stdout = sys.stdout
-                sys.stdout = f
-                pprint.pprint(stat)
-                sys.stdout = orig_stdout
-                f.close()
-                statsfile=open('adaptorEthPortStats.csv','a')
-                statsfile.write(2*'\n'+50*'#'+2*'\n')
-        i+=1
-        print("\nWaiting {interv} seconds.".format(interv=str(interv)))
-        time.sleep(interv)
+                    f=open('adaptorEthPortStats.csv','a')
+                    orig_stdout = sys.stdout
+                    sys.stdout = f
+                    pprint.pprint(stat)
+                    sys.stdout = orig_stdout
+                    f.close()
+                    statsfile=open('adaptorEthPortStats.csv','a')
+                    statsfile.write(2*'\n'+50*'#'+2*'\n')
+            i+=1
+            print("\nWaiting {interv} seconds.".format(interv=str(interv)))
+            time.sleep(interv)
 
 
-    statsfile.close()
-    print("\nDone!")
+        statsfile.close()
+        print("\nDone!")
 
-if __name__=="__main__":
-    adaptorEthPortStats(None,None,None,None,None)
+
+if __name__ == '__main__':
+    Get_net_stats.findUCSMCredfile()
+    connectvars=Get_net_stats.acquireConnectVars()
+    outCookie=Get_net_stats.acquireCookie(connectvars)
+    compute_list=Get_net_stats.findCompute(outCookie)
+    Get_net_stats.adaptorEthPortStats(outCookie, compute_list, connectvars)
